@@ -25,7 +25,7 @@ from io import BytesIO
 
 MODEL_NAME = "gemini-flash-latest" 
 
-API_KEY = "GEMINI_API_KEY"
+API_KEY = st.secrets["GEMINI_API_KEY"]
 
 FILE_NAME = "price_history.csv"
 SAVE_DIR = "item_images"
@@ -506,3 +506,4 @@ elif mode == "履歴・分析":
 
     else:
         st.info("履歴がまだありません。")
+
