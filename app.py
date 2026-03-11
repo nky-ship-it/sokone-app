@@ -26,6 +26,7 @@ from io import BytesIO
 MODEL_NAME = "gemini-flash-latest" 
 
 API_KEY = st.secrets["GEMINI_API_KEY"]
+
 FILE_NAME = "price_history.csv"
 SAVE_DIR = "item_images"
 
@@ -73,117 +74,154 @@ def safe_read_csv():
 
 # ==========================================
 
-# ==========================================
-# 1. 画面設定と翻訳バー消去（45行目付近から上書き）
-# ==========================================
+# menu_itemsの中に設定を書くことで、ブラウザに日本語であることを正しく伝えます
 st.set_page_config(
-    page_title="底値調",
+    page_title="底値調", 
     layout="centered",
     menu_items={
+        'Get Help': None,
+        'Report a bug': None,
         'About': "### 日本語のアプリです"
     }
 )
 
-# 翻訳バーを強制的に出さないためのおまじない
-st.markdown("""
-    <style>
-        html { lang: ja; }
-    </style>
-    <meta name="google" content="notranslate">
-""", unsafe_allow_html=True)
+# ブラウザの翻訳機能を直接オフにするための「おまじない」を画面に埋め込みます
+st.markdown('<html lang="ja">', unsafe_allow_html=True)
+
+if "SAVE_DIR" in globals(): st.static_file_storage_path = SAVE_DIR 
+
+st.markdown("### 底値調")
+
 
 if "res" not in st.session_state: st.session_state.res = None
+
 if "last_image_hash" not in st.session_state: st.session_state.last_image_hash = None
+
+
 
 mode = st.sidebar.radio("メニュー", ["解析・登録", "履歴・分析"])
 
-if mode == "解析・登録":
-    # capture="environment" でスマホの背面カメラを優先起動
-    file = st.file_uploader("写真を撮るか選択", type=["jpg", "jpeg", "png"], capture="environment")
-    
-    if file:
-        img_hash = hash(file.getvalue())
-        
-        # --- 超軽量化処理（パンク防止） ---
-        from PIL import Image, ImageOps
-        import gc  # メモリ解放用
-        
-        raw_img = Image.open(file)
-        raw_img = ImageOps.exif_transpose(raw_img) # 向きを補正
-        
-        # AI解析用に極限まで小さく(最大600px)して画質も落とす
-        img_for_ai = raw_img.copy().convert("RGB")
-        img_for_ai.thumbnail((600, 600))
-        
-        # 元の重い画像は即座にメモリから消す
-        del raw_img
-        gc.collect() 
 
-        st.image(img_for_ai, width=300)
+
+if mode == "解析・登録":
+
+    file = st.file_uploader("", type=["jpg", "jpeg", "png"])
+
+    
+
+    if file:
+        image = Image.open(file)
+        # --- ここから追加 ---
+        from PIL import ImageOps
+        image = ImageOps.exif_transpose(image) 
+        # --- ここまで ---
+        st.image(image, width=300)
+        img_hash = hash(file.getvalue())
+
+        
 
         if st.session_state.last_image_hash != img_hash:
+
             with st.spinner("解析中..."):
+
                 model = genai.GenerativeModel(MODEL_NAME)
+
+                # AIには「数値」と「フラグ」だけを厳密に答えさせる
+
                 prompt = f"""
+
                 画像の商品1つを解析し、以下の項目を正確に抽出せよ。
+
                 1. 店舗名：屋号のみ。
-                2. 商品名：ブランド名や種類。※トイレットペーパーは必ず「シングル」か「ダブル」を含めよ。
+
+                2. 商品名：ブランド名や種類。
+                   ※トイレットペーパーの場合は、必ず「シングル」か「ダブル」かを判別して商品名に含めよ（例：エリエール ダブル）。
+
                 3. 定価：割引前の税込数値のみ。
-                4. 割引後価格：割引後の税込数値のみ。ない場合は定価と同じ。
-                5. 半額フラグ：画像内に「半額」があれば「True」、なければ「False」。
-                6. 内容量：数値と単位(g/ml/m/枚/ロール)。トイレットペーパーはm数とロール数の両方（例：25m 12ロール）。
-                7. 推定分類：大分類/小分類。大分類は {MAIN_CATEGORIES} から選択。
+
+                4. 割引後価格：割引後の税込数値のみ。割引がない場合は定価と同じ数値を入れよ。
+
+                5. 半額フラグ：画像内に「半額」の文字があれば「True」、なければ「False」。
+
+                6. 内容量：数値と単位(g/ml/m/枚/ロール/ネット)。
+
+　　　　　　　　　※トイレットペーパー等は必ず「m数」と「ロール数」の両方を書け（例：25m 12ロール）。
+                   ※重量不明な菓子等は、成分表から「1枚のkcal / 100gのkcal * 100 * 枚数」を計算し、その合計g数を出力せよ。
+
+                7. 推定分類：大分類/小分類。大分類は {MAIN_CATEGORIES} から選択。肉なら必ず大分類を「肉」にせよ。
+
                 
+
                 出力形式：
+
                 店舗名：
+
                 商品名：
+
                 定価：
+
                 割引後価格：
+
                 半額フラグ：
+
                 内容量：
+
                 推定分類：
+
                 """
+
+                # --- 画像の軽量化処理 ---
+                img_for_ai = image.copy().convert("RGB")
+                img_for_ai.thumbnail((800, 800))  # 最大800pxにリサイズ
                 
                 buf = BytesIO()
-                img_for_ai.save(buf, format="JPEG", quality=40) # 画質40%まで圧縮
-                buf.seek(0)
+                img_for_ai.save(buf, format="JPEG", quality=50)  # 画質50%で圧縮
+                reduced_image = Image.open(buf)
                 
-                response = model.generate_content([prompt, Image.open(buf)])
-                text = response.text
-                
-                parsed = {"store":"", "product":"", "orig_p":0, "disc_p":0, "is_half": False, "content":"", "cat":"その他", "sub":""}
-                for line in text.split("\n"):
-                    if "店舗名：" in line: parsed["store"] = line.split("：")[-1].strip()
-                    if "商品名：" in line: parsed["product"] = line.split("：")[-1].strip()
-                    if "定価：" in line: 
-                        nums = extract_numbers(line)
-                        parsed["orig_p"] = int(nums[0]) if nums else 0
-                    if "割引後価格：" in line:
-                        nums = extract_numbers(line)
-                        parsed["disc_p"] = int(nums[0]) if nums else 0
-                    if "半額フラグ：" in line: parsed["is_half"] = "True" in line
-                    if "内容量：" in line: parsed["content"] = line.split("：")[-1].strip()
-                    if "推定分類：" in line:
-                        parts = line.split("：")[-1].split("/")
-                        parsed["cat"] = parts[0].strip() if parts[0].strip() in MAIN_CATEGORIES else "その他"
-                        if len(parts) > 1: parsed["sub"] = parts[1].strip()
+                # 軽量化した reduced_image をAIに送る
+                response = model.generate_content([prompt, reduced_image])
 
-                st.session_state.res = parsed
-                st.session_state.last_image_hash = img_hash
+                text = response.text
+
                 
-                # --- 安値トップ5検索機能（追加） ---
-                df_history = safe_read_csv()
-                if not df_history.empty and parsed["product"]:
-                    # 商品名で「あいまい検索」して安い順に並べる
-                    hits = df_history[df_history["商品"].str.contains(parsed["product"][:3], na=False)].copy()
-                    if not hits.empty:
-                        def get_u_price(x):
-                            n = extract_numbers(x)
-                            return n[0] if n else 9999
-                        hits["sort_v"] = hits["単価"].apply(get_u_price)
-                        st.session_state.top5 = hits.sort_values("sort_v").head(5)
-                    else:
-                        st.session_state.top5 = None
+
+                parsed = {"store":"", "product":"", "orig_p":0, "disc_p":0, "is_half": False, "content":"", "cat":"その他", "sub":""}
+
+                for line in text.split("\n"):
+
+                    if "店舗名：" in line: parsed["store"] = line.split("：")[-1].strip()
+
+                    if "商品名：" in line: parsed["product"] = line.split("：")[-1].strip()
+
+                    if "定価：" in line: 
+
+                        nums = extract_numbers(line)
+
+                        parsed["orig_p"] = int(nums[0]) if nums else 0
+
+                    if "割引後価格：" in line:
+
+                        nums = extract_numbers(line)
+
+                        parsed["disc_p"] = int(nums[0]) if nums else 0
+
+                    if "半額フラグ：" in line: parsed["is_half"] = "True" in line
+
+                    if "内容量：" in line:
+                        raw_content = line.split("：")[-1].strip()
+                        c_nums = extract_numbers(raw_content)
+                        if c_nums and "k" in raw_content.lower():
+                            parsed["content"] = f"{int(c_nums[0] * 1000)}g"
+                        else:
+                            parsed["content"] = raw_content
+
+                    if "推定分類：" in line:
+
+                        parts = line.split("：")[-1].split("/")
+
+                        parsed["cat"] = parts[0].strip() if parts[0].strip() in MAIN_CATEGORIES else "その他"
+
+                        if len(parts) > 1: parsed["sub"] = parts[1].strip()
 
                 
 
