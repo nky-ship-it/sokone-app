@@ -265,50 +265,50 @@ if mode == "解析・登録":
             st.error(f"保存に失敗しました。エラー詳細: {e}")
 
 elif mode == "履歴・分析":
-    # ttl=0 を指定して、保存直後でも最新のスプレッドシートを表示させる
+    # 最新のデータを強制的に読み込む（スプレッドシート更新反映のため必須）
     conn = st.connection("gsheets", type=GSheetsConnection)
-    df = conn.read(ttl=0) 
+    df = conn.read(ttl="0")
     
     if df is not None and not df.empty:
-
-    df = safe_read_csv()
-    if not df.empty:
-        # --- 検索窓の修正（小分類を追加） ---
         with st.expander("🔍 履歴を検索・絞り込み", expanded=True):
-            c1, c2, c3 = st.columns(3) # 3列にします
+            c1, c2, c3 = st.columns(3)
             with c1: 
                 search_word = st.text_input("キーワード検索", "")
             with c2: 
                 target_cat = st.selectbox("大分類で絞り込み", ["すべて"] + MAIN_CATEGORIES)
             with c3:
-                # 大分類に連動した小分類リストを作成
-                if target_cat != "すべて":
-                    subs = ["すべて"] + SUB_CAT_DICT.get(target_cat, [])
-                else:
-                    subs = ["すべて"]
+                # SUB_CAT_DICTから小分類を引く元のロジックを維持
+                subs = ["すべて"] + SUB_CAT_DICT.get(target_cat, []) if target_cat != "すべて" else ["すべて"]
                 target_sub = st.selectbox("小分類で絞り込み", subs)
         
-        # フィルタリング処理（小分類の条件を追加）
         filtered_df = df.copy()
+        # キーワード検索ロジック（元コードを完全継承）
         if search_word:
             filtered_df = filtered_df[
                 (filtered_df["商品"].astype(str).str.contains(search_word, na=False)) | 
                 (filtered_df["備考"].astype(str).str.contains(search_word, na=False)) |
                 (filtered_df["subcategory"].astype(str).str.contains(search_word, na=False))
             ]
-        if target_cat != "すべて":
-            filtered_df = filtered_df[filtered_df["category"] == target_cat]
-        
-        # 【追加】小分類での絞り込み
-        if target_sub != "すべて":
-            filtered_df = filtered_df[filtered_df["subcategory"] == target_sub]
+        if target_cat != "すべて": filtered_df = filtered_df[filtered_df["category"] == target_cat]
+        if target_sub != "すべて": filtered_df = filtered_df[filtered_df["subcategory"] == target_sub]
 
-        # --- 表示処理（ここは変更なし） ---
+        # 表示する列のリスト（元コードと同じ順序）
         display_cols = ["subcategory", "単価", "価格", "内容量", "店舗", "商品", "category", "日時", "備考", "画像"]
-        df_view = filtered_df.reindex(columns=display_cols).sort_values("日時", ascending=False)
-        df_view.columns = ["小分類", "単価", "値段", "容量", "店舗名", "商品名", "大分類", "登録日", "備考", "写真"]
+        existing_cols = [c for c in display_cols if c in filtered_df.columns]
+        df_view = filtered_df.reindex(columns=existing_cols).sort_values("日時", ascending=False)
         
-        st.data_editor(df_view, use_container_width=True, hide_index=True)
+        # 表示用の日本語名マッピング（元コードを継承）
+        col_map = {"subcategory":"小分類", "単価":"単価", "価格":"値段", "内容量":"容量", "店舗":"店舗名", "商品":"商品名", "category":"大分類", "日時":"登録日", "備考":"備考", "画像":"写真"}
+        df_view.columns = [col_map.get(c, c) for c in df_view.columns]
         
+        # ★徹底チェック：写真を表示させるための設定を追加（ここが抜けていた）
+        st.dataframe(
+            df_view, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "写真": st.column_config.ImageColumn("写真", help="保存された商品写真")
+            }
+        )
     else:
         st.info("履歴がまだありません。")
