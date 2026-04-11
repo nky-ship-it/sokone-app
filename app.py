@@ -219,19 +219,39 @@ if mode == "解析・登録":
                 img_path = os.path.join(SAVE_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
                 thumb = image.copy(); thumb.thumbnail((200, 200)); thumb.save(img_path, "JPEG", quality=50)
             
-            new_row = [datetime.now().strftime("%Y-%m-%d %H:%M"), store, save_product, price_val, content_val, u_display, cat, sub, note, img_path]
-            with open(FILE_NAME, "a", newline="", encoding="utf-8-sig") as f:
-                writer = csv.writer(f)
-                if os.path.getsize(FILE_NAME) == 0:
-                    writer.writerow(["日時", "店舗", "商品", "価格", "内容量", "単価", "category", "subcategory", "備考", "画像"])
-                writer.writerow(new_row)
+            # 1. 接続を確立
+            conn = st.connection("gsheets", type=GSheetsConnection)
             
-            st.success("保存完了！")
+            # 2. 現在のデータを取得（ここが重要：ttl=0で強制的に最新を見る）
+            df_all = conn.read(ttl=0)
+            
+            # 3. 新しいデータを作成
+            new_row = pd.DataFrame([{
+                "日時": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "店舗": store, "商品": save_product, "価格": price_val, "内容量": content_val,
+                "単価": u_display, "category": cat, "subcategory": sub, "備考": note, "画像": img_path
+            }])
+            
+            # 4. 合体（空の場合も考慮）
+            if df_all is not None and not df_all.empty:
+                updated_df = pd.concat([df_all, new_row], ignore_index=True)
+            else:
+                updated_df = new_row
+            
+            # 5. 【修正ポイント】スプレッドシートの1番目のシートに書き込む
+            # worksheetの指定を明示的に行うことで確実に反映させます
+            conn.update(data=updated_df)
+            
+            # キャッシュをクリアして次に読み込む時に最新が出るようにする
+            st.cache_data.clear()
+            
+            st.success("スプレッドシートを更新しました！")
             import time; time.sleep(1)
             st.session_state.saved_store = store if keep_check else ""
             st.session_state.res = None
             st.rerun()
-        except Exception as e: st.error(f"失敗: {e}")
+        except Exception as e: 
+            st.error(f"保存に失敗しました。エラー詳細: {e}")
 
 elif mode == "履歴・分析":
     df = safe_read_csv()
