@@ -265,6 +265,12 @@ if mode == "解析・登録":
             st.error(f"保存に失敗しました。エラー詳細: {e}")
 
 elif mode == "履歴・分析":
+    # ttl=0 を指定して、保存直後でも最新のスプレッドシートを表示させる
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    df = conn.read(ttl=0) 
+    
+    if df is not None and not df.empty:
+
     df = safe_read_csv()
     if not df.empty:
         # --- 検索窓の修正（小分類を追加） ---
