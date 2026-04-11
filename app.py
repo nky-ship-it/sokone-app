@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 import re
 from io import BytesIO
+from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
 # 憲法：設定とモデル固定（一切変更禁止）
@@ -219,30 +220,40 @@ if mode == "解析・登録":
                 img_path = os.path.join(SAVE_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
                 thumb = image.copy(); thumb.thumbnail((200, 200)); thumb.save(img_path, "JPEG", quality=50)
             
-            # 1. 接続を確立
+            # 接続を確立
             conn = st.connection("gsheets", type=GSheetsConnection)
             
-            # 2. 現在のデータを取得（ここが重要：ttl=0で強制的に最新を見る）
-            df_all = conn.read(ttl=0)
+            # 最新の全データを取得（ttl=0 でキャッシュを無視）
+            try:
+                df_all = conn.read(ttl=0)
+            except:
+                df_all = pd.DataFrame()
             
-            # 3. 新しいデータを作成
+            # 新しい1行を作成
             new_row = pd.DataFrame([{
                 "日時": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "店舗": store, "商品": save_product, "価格": price_val, "内容量": content_val,
-                "単価": u_display, "category": cat, "subcategory": sub, "備考": note, "画像": img_path
+                "店舗": store, 
+                "商品": save_product, 
+                "価格": price_val, 
+                "内容量": content_val,
+                "単価": u_display, 
+                "category": cat, 
+                "subcategory": sub, 
+                "備考": note, 
+                "画像": img_path
             }])
             
-            # 4. 合体（空の場合も考慮）
+            # 既存データと結合
             if df_all is not None and not df_all.empty:
+                # 列名が一致しない場合に備えて、新しい行を既存の列に合わせる
                 updated_df = pd.concat([df_all, new_row], ignore_index=True)
             else:
                 updated_df = new_row
             
-            # 5. 【修正ポイント】スプレッドシートの1番目のシートに書き込む
-            # worksheetの指定を明示的に行うことで確実に反映させます
+            # スプレッドシートを丸ごと上書き保存
             conn.update(data=updated_df)
             
-            # キャッシュをクリアして次に読み込む時に最新が出るようにする
+            # Streamlit側の表示キャッシュをクリア
             st.cache_data.clear()
             
             st.success("スプレッドシートを更新しました！")
